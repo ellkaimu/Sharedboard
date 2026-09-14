@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=ShareBoard
+GenericName=Collaborative Editor
+Comment=Real-time collaborative text editor
+Exec=shareboard
+Icon=shareboard
+Terminal=false
+Categories=Office;TextEditor;Network;
+StartupNotify=false

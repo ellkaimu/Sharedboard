@@ -1,0 +1,9 @@
+shareboard (2.0.0-1) unstable; urgency=medium
+
+  * Real-time collaborative editor rewritten on top of pycrdt (Yjs).
+  * Multi-board support with shareable URLs.
+  * Presence (remote cursors + names + colors) and undo/redo.
+  * SQLite-backed persistence with atomic snapshots.
+  * Frontend now uses ProseMirror + y-prosemirror (rich text).
+
+ -- ShareBoard <shareboard@example.invalid>  Sat, 14 Sep 2024 12:00:00 +0000

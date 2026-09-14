@@ -1,0 +1,31 @@
+Source: shareboard
+Section: web
+Priority: optional
+Maintainer: ShareBoard <shareboard@example.invalid>
+Build-Depends: debhelper-compat (= 13),
+               dh-python,
+               python3-all,
+               python3-setuptools,
+               python3-wheel,
+               pybuild-plugin-pyproject
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+
+Package: shareboard
+Architecture: all
+Depends: ${python3:Depends},
+         ${misc:Depends},
+         python3-flask (>= 3.0),
+         python3-flask-socketio (>= 5.3),
+         python3-socketio (>= 5.11),
+         python3-bidict,
+         python3-h11,
+         python3-wsproto,
+         python3-simple-websocket
+Recommends: python3-pycrdt
+Description: Real-time collaborative text editor (CRDT)
+ ShareBoard is a Google-Docs-style real-time collaborative editor. Each
+ board is a CRDT document (Yjs via pycrdt on the server, y-prosemirror in
+ the browser). Multiple users can edit the same board simultaneously with
+ presence (remote cursors and names). All edits are persisted to a local
+ SQLite database and survive server restarts.

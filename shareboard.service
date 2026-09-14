@@ -1,0 +1,31 @@
+[Unit]
+Description=ShareBoard collaborative editor
+Documentation=https://example.invalid/shareboard
+After=network.target
+
+[Service]
+Type=simple
+User=shareboard
+Group=shareboard
+WorkingDirectory=/var/lib/shareboard
+Environment=SHAREBOARD_HOST=0.0.0.0
+Environment=SHAREBOARD_PORT=8888
+Environment=SHAREBOARD_DATA_DIR=/var/lib/shareboard
+ExecStart=/usr/bin/shareboard
+Restart=on-failure
+RestartSec=5
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/shareboard
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

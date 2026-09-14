@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shareboard"
+version = "2.0.0"
+description = "Real-time collaborative text editor (Google-Docs style) backed by pycrdt"
+requires-python = ">=3.9"
+readme = "README.md"
+authors = [{ name = "ShareBoard Contributors" }]
+license = { text = "MIT" }
+dependencies = [
+    "flask>=3.0,<4",
+    "flask-socketio>=5.3,<6",
+    "python-socketio>=5.11,<6",
+    "python-engineio>=4.9,<5",
+    "pycrdt>=0.12,<1",
+    "bidict>=0.23,<1",
+    "simple-websocket>=1.1,<2",
+    "h11>=0.16,<1",
+    "wsproto>=1.2,<2",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8", "pytest-asyncio>=0.23"]
+
+[project.scripts]
+shareboard = "shareboard.app:main"
+
+[project.urls]
+Homepage = "https://example.invalid/shareboard"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["shareboard*"]
+
+[tool.setuptools.package-data]
+shareboard = ["templates/*.html", "static/css/*.css", "static/js/*.js"]

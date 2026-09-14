@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}{{ board.name }} — ShareBoard{% endblock %}
+{% block head %}
+<script type="importmap">
+{
+  "imports": {
+    "yjs": "https://esm.sh/yjs@13.6.18",
+    "y-protocols/awareness": "https://esm.sh/y-protocols@1.0.6/awareness",
+    "y-prosemirror": "https://esm.sh/y-prosemirror@1.2.12?deps=yjs@13.6.18",
+    "prosemirror-state": "https://esm.sh/prosemirror-state@1.4.3?deps=yjs@13.6.18",
+    "prosemirror-view": "https://esm.sh/prosemirror-view@1.34.3?deps=yjs@13.6.18",
+    "prosemirror-model": "https://esm.sh/prosemirror-model@1.22.3?deps=yjs@13.6.18",
+    "prosemirror-schema-basic": "https://esm.sh/prosemirror-schema-basic@1.2.3?deps=yjs@13.6.18",
+    "prosemirror-keymap": "https://esm.sh/prosemirror-keymap@1.2.2?deps=yjs@13.6.18,prosemirror-state@1.4.3,prosemirror-view@1.34.3",
+    "socket.io-client": "https://esm.sh/socket.io-client@4.7.5"
+  }
+}
+</script>
+{% endblock %}
+{% block body %}
+<header class="topbar">
+  <a class="brand" href="/">ShareBoard</a>
+  <span class="board-name">{{ board.name }}</span>
+  <span class="spacer"></span>
+  <span id="presence" class="presence"></span>
+  <span id="status" class="status-pill">Connecting…</span>
+  <button id="share-btn" class="ghost">Copy link</button>
+  <button id="rename-btn" class="ghost">Rename</button>
+</header>
+
+<main class="editor-wrap">
+  <div id="editor" class="editor"></div>
+</main>
+
+<script type="module" src="{{ url_for('static', filename='js/editor.js') }}?board={{ board.id }}"></script>
+{% endblock %}

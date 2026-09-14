@@ -3,23 +3,30 @@
 #
 # Usage (from project root):
 #   ./build_deb.sh
+#   SHAREBOARD_DEB_MODE=manual ./build_deb.sh   # force a path
+#   SHAREBOARD_DEB_MODE=proper ./build_deb.sh
 #
-# Output: ../shareboard_<version>-1_all.deb
+# Output: ../shareboard_<version>-1_<arch>.deb
 #
 # This script picks one of two paths:
 #
-#   1) Proper path — uses dpkg-buildpackage + pybuild. Requires:
+#   1) Manual path (default on Ubuntu 22.04) — dpkg-deb directly, no
+#      debhelper, no root. All Python runtime dependencies (flask,
+#      flask-socketio, pycrdt, ...) are downloaded from PyPI at *build*
+#      time and vendored into /usr/lib/shareboard/site-packages, so the
+#      .deb installs and runs on a stock Ubuntu 22.04 (jammy, python
+#      3.10) whose apt repos don't carry flask>=3 or pycrdt. Needs pip
+#      for python3 (python3-pip, or a .venv built from the same
+#      interpreter) plus network access to PyPI at build time only.
+#
+#   2) Proper path (newer distros only, e.g. Ubuntu 24.04+) —
+#      dpkg-buildpackage + pybuild against system Python packages.
+#      Requires:
 #        sudo apt install dpkg-dev debhelper dh-python \
 #                         python3-all python3-setuptools \
-#                         python3-wheel pybuild-plugin-pybuild \
-#                         python3-flask python3-flask-socketio \
-#                         python3-socketio python3-eventlet
-#      And to actually run, the postinst still pip-installs pycrdt
-#      because pycrdt isn't in Debian bookworm.
-#
-#   2) Manual path — uses dpkg-deb directly. No dpkg-dev, no debhelper,
-#      no root. Produces a working .deb that depends on the same set of
-#      system Python packages. Use this when you don't have sudo.
+#                         python3-wheel pybuild-plugin-pyproject
+#      (jammy's dh-python has no pyproject plugin, so this path cannot
+#      work there.)
 
 set -euo pipefail
 
@@ -45,8 +52,12 @@ for d in shareboard shareboard/templates shareboard/static debian; do
     fi
 done
 
-if command -v dpkg-buildpackage >/dev/null 2>&1 \
-   && command -v debhelper >/dev/null 2>&1; then
+MODE="${SHAREBOARD_DEB_MODE:-auto}"
+
+if [ "${MODE}" = "proper" ] \
+   || { [ "${MODE}" = "auto" ] \
+        && command -v dpkg-buildpackage >/dev/null 2>&1 \
+        && command -v dh >/dev/null 2>&1; }; then
     # -------------------------------------------------------------- proper path
     rm -rf "debian/${APP_NAME}"
 
@@ -57,7 +68,6 @@ ${APP_NAME} (${PKG_VERSION}) unstable; urgency=medium
 
  -- ShareBoard <shareboard@example.invalid>  $(date -R)
 EOF
-    echo "13" > debian/compat
     chmod +x debian/rules
 
     dpkg-buildpackage -us -uc -b
@@ -65,11 +75,27 @@ EOF
     echo "Built: ../${APP_NAME}_${PKG_VERSION}_all.deb"
 else
     # --------------------------------------------------------------- manual path
-    echo "==> dpkg-buildpackage / debhelper not found; using dpkg-deb directly"
+    echo "==> manual path: dpkg-deb with vendored Python dependencies"
 
     if ! command -v dpkg-deb >/dev/null 2>&1; then
-        echo "error: dpkg-deb not found either. Install it with:" >&2
+        echo "error: dpkg-deb not found. Install it with:" >&2
         echo "  sudo apt install dpkg" >&2
+        exit 1
+    fi
+
+    # pip for python3: system pip, pip3, or the project's .venv when it
+    # was created from the same interpreter (its wheels are identical).
+    if python3 -m pip --version >/dev/null 2>&1; then
+        PIP_CMD=(python3 -m pip)
+    elif command -v pip3 >/dev/null 2>&1; then
+        PIP_CMD=(pip3)
+    elif [ -x "${PROJECT_ROOT}/.venv/bin/pip" ] \
+         && [ "$("${PROJECT_ROOT}/.venv/bin/python" -V 2>/dev/null)" \
+              = "$(python3 -V 2>/dev/null)" ]; then
+        PIP_CMD=("${PROJECT_ROOT}/.venv/bin/pip")
+    else
+        echo "error: pip for python3 not found (needed to vendor deps)." >&2
+        echo "  sudo apt install python3-pip" >&2
         exit 1
     fi
 
@@ -96,6 +122,27 @@ else
     find "${PKG_SRC}" -type f -name '*.pyc' -delete
     cp -r "${PKG_SRC}/shareboard" \
         "${DEST}/usr/lib/python3/dist-packages/"
+
+    # --- Vendored Python dependencies -----------------------------------------
+    # jammy's apt doesn't carry flask>=3 / pycrdt / simple-websocket, so
+    # bundle the runtime deps (requirements.txt minus test-only packages)
+    # from PyPI into /usr/lib/shareboard/site-packages. The launcher puts
+    # that directory on PYTHONPATH ahead of the system paths.
+    SITE_PACKAGES="${DEST}/usr/lib/shareboard/site-packages"
+    mkdir -p "${SITE_PACKAGES}"
+    RUNTIME_REQS="$(mktemp -t shareboard-reqs-XXXXXX)"
+    grep -E '^[a-zA-Z0-9]' "${PROJECT_ROOT}/requirements.txt" \
+        | grep -vE '^(pytest|pytest-asyncio)([<>=! ]|$)' > "${RUNTIME_REQS}"
+    if [ ! -s "${RUNTIME_REQS}" ]; then
+        echo "error: failed to parse runtime requirements from requirements.txt" >&2
+        rm -f "${RUNTIME_REQS}"
+        exit 1
+    fi
+    echo "==> Vendoring Python dependencies from PyPI:"
+    sed 's/^/    /' "${RUNTIME_REQS}"
+    "${PIP_CMD[@]}" install --no-input --disable-pip-version-check \
+        --no-compile --target "${SITE_PACKAGES}" -r "${RUNTIME_REQS}"
+    rm -f "${RUNTIME_REQS}"
 
     # Minimal .dist-info so pip / systemd-aware tools can recognise the install.
     DIST_INFO="${DEST}/usr/lib/python3/dist-packages/shareboard-${VERSION}.dist-info"
@@ -129,7 +176,7 @@ EOF
     cat > "${DEST}/usr/bin/shareboard" <<'EOF'
 #!/bin/bash
 set -e
-export PYTHONPATH="/usr/lib/python3/dist-packages:${PYTHONPATH:-}"
+export PYTHONPATH="/usr/lib/shareboard/site-packages:/usr/lib/python3/dist-packages:${PYTHONPATH:-}"
 exec python3 -m shareboard "$@"
 EOF
     chmod 0755 "${DEST}/usr/bin/shareboard"
@@ -145,20 +192,15 @@ EOF
     touch "${DEST}/var/lib/shareboard/.keep"
 
     # --- DEBIAN/control -------------------------------------------------------
+    # The vendored wheels are built for this build machine's interpreter
+    # (jammy = python3.10), so pin python3 accordingly.
+    ARCH="$(dpkg --print-architecture)"
     cat > "${DEBIAN_DIR}/control" <<EOF
 Package: ${APP_NAME}
 Version: ${PKG_VERSION}
-Architecture: all
+Architecture: ${ARCH}
 Maintainer: ShareBoard <shareboard@example.invalid>
-Depends: python3 (>= 3.10),
-         python3-flask (>= 3.0),
-         python3-flask-socketio (>= 5.3),
-         python3-socketio (>= 5.11),
-         python3-bidict,
-         python3-h11,
-         python3-wsproto,
-         python3-simple-websocket
-Recommends: python3-pycrdt
+Depends: python3 (>= 3.10), python3 (<< 3.11)
 Section: web
 Priority: optional
 Description: Real-time collaborative text editor (Google-Docs style)
@@ -167,6 +209,9 @@ Description: Real-time collaborative text editor (Google-Docs style)
  in the browser). Multiple users can edit the same board simultaneously
  with presence (remote cursors and names). All edits are persisted to a
  local SQLite database and survive server restarts.
+ .
+ All Python dependencies (flask, flask-socketio, pycrdt, ...) are
+ bundled; the package targets Ubuntu 22.04 (python3 3.10).
 EOF
 
     # --- DEBIAN/conffiles -----------------------------------------------------
@@ -180,18 +225,18 @@ EOF
     cat > "${DEBIAN_DIR}/postinst" <<'EOF'
 #!/bin/bash
 set -e
-# pycrdt has no Debian package as of bookworm; pull it from PyPI on first
-# install. Idempotent — skip if already present.
-if ! python3 -c "import pycrdt" >/dev/null 2>&1; then
-    if command -v pip3 >/dev/null 2>&1; then
-        pip3 install --break-system-packages --quiet pycrdt || \
-            echo "warning: could not auto-install pycrdt; install it manually" >&2
-    fi
+# Dedicated system user/group for the service (unit's User=shareboard).
+if ! id shareboard >/dev/null 2>&1; then
+    adduser --system --group --home /var/lib/shareboard \
+        --no-create-home shareboard
 fi
 mkdir -p /var/lib/shareboard
+chown shareboard:shareboard /var/lib/shareboard
 chmod 755 /var/lib/shareboard
 if [ -d /run/systemd/system ]; then
     systemctl daemon-reload >/dev/null 2>&1 || true
+    systemctl enable shareboard >/dev/null 2>&1 || true
+    systemctl restart shareboard >/dev/null 2>&1 || true
 fi
 exit 0
 EOF
@@ -201,16 +246,25 @@ EOF
     cat > "${DEBIAN_DIR}/prerm" <<'EOF'
 #!/bin/bash
 set -e
+# Stop the service on remove/upgrade, but leave it enabled so upgrades
+# don't silently disable it.
 if [ -d /run/systemd/system ]; then
     systemctl stop shareboard >/dev/null 2>&1 || true
-    systemctl disable shareboard >/dev/null 2>&1 || true
 fi
 exit 0
 EOF
     chmod 0755 "${DEBIAN_DIR}/prerm"
 
+    # --- Normalize permissions ------------------------------------------------
+    # The source tree can carry permissive umask bits (e.g. 775/664);
+    # system files must be root-owned 755/644.
+    find "${DEST}" -type d -exec chmod 0755 {} +
+    find "${DEST}" -type f -exec chmod 0644 {} +
+    chmod 0755 "${DEBIAN_DIR}/postinst" "${DEBIAN_DIR}/prerm" \
+        "${DEST}/usr/bin/shareboard"
+
     # --- Build it -------------------------------------------------------------
-    OUT="$(dirname "${PROJECT_ROOT}")/${APP_NAME}_${PKG_VERSION}_all.deb"
+    OUT="$(dirname "${PROJECT_ROOT}")/${APP_NAME}_${PKG_VERSION}_${ARCH}.deb"
     dpkg-deb --build --root-owner-group --uniform-compression \
         "${DEST}" "${OUT}"
 
@@ -222,5 +276,5 @@ EOF
     echo "  dpkg-deb -c ${OUT} | head -20"
     echo
     echo "Install with:"
-    echo "  sudo apt install ./$(basename "${OUT}")"
+    echo "  sudo apt install ${OUT}"
 fi

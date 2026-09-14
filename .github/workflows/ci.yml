@@ -9,7 +9,7 @@ on:
 jobs:
   test:
     name: pytest (${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
@@ -36,7 +36,7 @@ jobs:
         run: pytest -q --color=yes
 
   build-deb:
-    name: Build .deb package
+    name: Build .deb (Ubuntu 22.04)
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -44,32 +44,59 @@ jobs:
       - name: Install build deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            debhelper \
-            dh-python \
-            python3-all \
-            python3-setuptools \
-            python3-wheel \
-            python3-pybuild-plugin-pyproject \
-            devscripts \
-            build-essential
-          # pycrdt isn't in Debian bookworm repos; install from PyPI for the
-          # postinst smoke test only.
-          pip3 install --break-system-packages pycrdt
+          sudo apt-get install -y python3-pip
 
-      - name: Build
+      - name: Build .deb
+        env:
+          SHAREBOARD_DEB_MODE: manual
         run: ./build_deb.sh
 
-      - name: Inspect .deb
+      - name: Stage and inspect .deb
         run: |
-          cd ..
-          ls -la *.deb
-          dpkg-deb -I shareboard_*.deb | head -30
-          dpkg-deb -c shareboard_*.deb | head -40
+          set -euxo pipefail
+          cp ../shareboard_*.deb .
+          DEB="$(ls -1 shareboard_*.deb | head -n1)"
+          ls -la "$DEB"
+          dpkg-deb -I "$DEB" | head -40
+          echo "packaged files: $(dpkg-deb -c "$DEB" | wc -l)"
+          dpkg-deb -c "$DEB" \
+            | grep -E '(usr/bin|systemd|applications|site-packages/(flask|pycrdt))/' \
+            | head -20
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: shareboard-deb
-          path: ../shareboard_*.deb
+          path: shareboard_*.deb
           if-no-files-found: error
+
+      - name: Smoke test (install & run on this jammy runner)
+        run: |
+          set -euxo pipefail
+          sudo apt-get install -y ./shareboard_*.deb
+
+          # The postinst enables + starts the systemd service on port 8888.
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8888/ >/dev/null && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8888/ >/dev/null
+          # socket.io engine.io handshake (exercises flask-socketio stack)
+          curl -fsS "http://127.0.0.1:8888/socket.io/?EIO=4&transport=polling" \
+            | grep -q '"sid"'
+          echo "systemd service OK"
+
+          # Also verify a direct (non-systemd) launch on another port.
+          SHAREBOARD_PORT=8899 \
+          SHAREBOARD_DATA_DIR="$RUNNER_TEMP/shareboard-smoke" \
+            shareboard &
+          APP_PID=$!
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8899/ >/dev/null && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8899/ >/dev/null
+          echo "direct launch OK"
+
+          kill "$APP_PID" || true
+          sudo apt-get remove -y shareboard

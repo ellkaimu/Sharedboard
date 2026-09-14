@@ -33,18 +33,21 @@ python -m shareboard
 
 ## Install (.deb)
 
-```bash
-./build_deb.sh          # produces ../shareboard_<ver>_all.deb
-sudo dpkg -i ../shareboard_2.0.0-1_all.deb
-sudo systemctl enable --now shareboard
-```
-
-pycrdt is not yet packaged in Debian; the postinst installs it via pip:
+The .deb vendors all Python dependencies (flask, pycrdt, ...) from PyPI at
+build time, so it installs and runs on a stock **Ubuntu 22.04** with no
+extra apt packages beyond `python3` — no pip, no network needed at install
+time:
 
 ```bash
-sudo apt install ./shareboard_2.0.0-1_all.deb
-sudo pip install --break-system-packages pycrdt
+sudo apt install python3-pip   # build-time only, for vendoring the deps
+./build_deb.sh                 # produces ../shareboard_2.0.0-1_amd64.deb
+sudo apt install ../shareboard_2.0.0-1_amd64.deb
 ```
+
+Installing enables and starts the systemd service on port 8888
+(`http://localhost:8888`), creates the dedicated `shareboard` system user,
+and installs a desktop entry plus a `/usr/bin/shareboard` launcher for
+running it manually.
 
 ## Configuration (env vars)
 
